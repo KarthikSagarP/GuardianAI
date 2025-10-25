@@ -1,0 +1,25 @@
+﻿# Python & environment
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+
+# Env files, logs
+.env
+.env.*
+*.log
+
+# Editor / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Node / build
+node_modules/
+
+# Local DBs / caches
+chroma_db/
+*.sqlite
