@@ -28,8 +28,8 @@ const Navbar = () => {
             </span>
           </Link>
 
-          {/* Navigation Links */}
-          <div className="flex items-center gap-2">
+          {/* Navigation Links and Theme Toggle - Pushed to Right */}
+          <div className="flex items-center gap-2 ml-auto">
             {navLinks.map((link) => (
               <Link
                 key={link.path}
@@ -43,20 +43,20 @@ const Navbar = () => {
                 {link.label}
               </Link>
             ))}
+            
+            {/* Theme Toggle */}
+            <button
+              onClick={toggleTheme}
+              className="w-10 h-10 rounded-lg bg-gray-100 dark:bg-slate-800 flex items-center justify-center hover:scale-110 transition-transform"
+              aria-label="Toggle theme"
+            >
+              {theme === 'dark' ? (
+                <Sun className="w-5 h-5 text-yellow-500" />
+              ) : (
+                <Moon className="w-5 h-5 text-slate-700" />
+              )}
+            </button>
           </div>
-
-          {/* Theme Toggle */}
-          <button
-            onClick={toggleTheme}
-            className="w-10 h-10 rounded-lg bg-gray-100 dark:bg-slate-800 flex items-center justify-center hover:scale-110 transition-transform"
-            aria-label="Toggle theme"
-          >
-            {theme === 'dark' ? (
-              <Sun className="w-5 h-5 text-yellow-500" />
-            ) : (
-              <Moon className="w-5 h-5 text-slate-700" />
-            )}
-          </button>
         </div>
       </div>
     </nav>

@@ -1,9 +1,10 @@
 import { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Upload, Github, AlertCircle, CheckCircle2, Loader2, Check } from 'lucide-react';
+import { Upload, Github, AlertCircle, CheckCircle2, Loader2, RotateCcw } from 'lucide-react';
 import { api } from '@/services/api';
-import type { CodeAuditResponse, LoadingState, ErrorState } from '@/types';
+import type { ErrorState } from '@/types';
 import ViolationResults from '@/components/ViolationResults';
+import { useAppState } from '@/contexts/AppStateContext';
 
 interface ProgressUpdate {
   status: string;
@@ -11,36 +12,33 @@ interface ProgressUpdate {
   current_file?: string;
   analyzed_files?: number;
   total_files?: number;
-  violations?: number;
+  violations?: any;
   file?: string;
 }
 
 const CodeAudit = () => {
-  const [repoUrl, setRepoUrl] = useState('');
-  const [pdfFile, setPdfFile] = useState<File | null>(null);
+  const { state, updateCodeAudit, resetCodeAudit } = useAppState();
+  const { repoUrl, pdfFile, pdfFileName, modelName, results, isLoading, progressUpdates, currentProgress } = state.codeAudit;
+  
   const [pdfPath, setPdfPath] = useState('');
-  const [loading, setLoading] = useState<LoadingState>({ isLoading: false });
   const [error, setError] = useState<ErrorState>({ hasError: false });
-  const [results, setResults] = useState<CodeAuditResponse | null>(null);
-  const [progressUpdates, setProgressUpdates] = useState<ProgressUpdate[]>([]);
-  const [currentProgress, setCurrentProgress] = useState<ProgressUpdate | null>(null);
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file && file.type === 'application/pdf') {
-      setPdfFile(file);
+      updateCodeAudit({ pdfFile: file, pdfFileName: file.name });
       try {
-        setLoading({ isLoading: true, message: 'Uploading PDF...' });
+        updateCodeAudit({ isLoading: true });
         const uploadResult = await api.uploadPDF(file);
         setPdfPath(uploadResult.path);
-        setLoading({ isLoading: false });
+        updateCodeAudit({ isLoading: false });
       } catch (err) {
         setError({
           hasError: true,
           message: 'Failed to upload PDF',
           details: err instanceof Error ? err.message : 'Unknown error',
         });
-        setLoading({ isLoading: false });
+        updateCodeAudit({ isLoading: false });
       }
     }
   };
@@ -60,11 +58,13 @@ const CodeAudit = () => {
     }
 
     try {
-      setLoading({ isLoading: true, message: 'Starting audit...' });
+      updateCodeAudit({ 
+        isLoading: true,
+        results: null,
+        progressUpdates: [],
+        currentProgress: null
+      });
       setError({ hasError: false });
-      setResults(null);
-      setProgressUpdates([]);
-      setCurrentProgress(null);
 
       // Use EventSource for SSE
       const eventSource = new EventSource(
@@ -78,30 +78,36 @@ const CodeAudit = () => {
 
       eventSource.addEventListener('progress', (event) => {
         const data: ProgressUpdate = JSON.parse(event.data);
-        setCurrentProgress(data);
+        updateCodeAudit({ currentProgress: data });
         
         if (data.status === 'file_complete') {
-          setProgressUpdates(prev => [...prev, data]);
+          updateCodeAudit({ 
+            progressUpdates: [...progressUpdates, data]
+          });
         }
       });
 
       eventSource.addEventListener('complete', (event) => {
         const data = JSON.parse(event.data);
-        setResults(data);
-        setLoading({ isLoading: false });
-        setCurrentProgress(null);
+        updateCodeAudit({ 
+          results: data,
+          isLoading: false,
+          currentProgress: null
+        });
         eventSource.close();
       });
 
-      eventSource.addEventListener('error', (event) => {
+      eventSource.addEventListener('error', (event: any) => {
         const errorData = event.data ? JSON.parse(event.data) : {};
         setError({
           hasError: true,
           message: 'Audit failed',
           details: errorData.error || 'Connection error',
         });
-        setLoading({ isLoading: false });
-        setCurrentProgress(null);
+        updateCodeAudit({ 
+          isLoading: false,
+          currentProgress: null
+        });
         eventSource.close();
       });
 
@@ -111,8 +117,10 @@ const CodeAudit = () => {
           message: 'Connection failed',
           details: 'Could not connect to server',
         });
-        setLoading({ isLoading: false });
-        setCurrentProgress(null);
+        updateCodeAudit({ 
+          isLoading: false,
+          currentProgress: null
+        });
         eventSource.close();
       };
 
@@ -122,7 +130,7 @@ const CodeAudit = () => {
         message: 'Audit failed',
         details: err instanceof Error ? err.message : 'Unknown error',
       });
-      setLoading({ isLoading: false });
+      updateCodeAudit({ isLoading: false });
     }
   };
 
@@ -156,7 +164,7 @@ const CodeAudit = () => {
               <input
                 type="url"
                 value={repoUrl}
-                onChange={(e) => setRepoUrl(e.target.value)}
+                onChange={(e) => updateCodeAudit({ repoUrl: e.target.value })}
                 placeholder="https://github.com/username/repository"
                 className="input-field"
               />
@@ -206,28 +214,43 @@ const CodeAudit = () => {
             )}
 
             {/* Submit Button */}
-            <button
-              onClick={handleAudit}
-              disabled={loading.isLoading}
-              className="btn-primary w-full disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
-            >
-              {loading.isLoading ? (
-                <>
-                  <Loader2 className="w-5 h-5 animate-spin" />
-                  {loading.message}
-                </>
-              ) : (
-                <>
-                  <CheckCircle2 className="w-5 h-5" />
-                  Start Audit
-                </>
-              )}
-            </button>
+            <div className="flex gap-4">
+              <button
+                onClick={handleAudit}
+                disabled={isLoading}
+                className="btn-primary flex-1 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+              >
+                {isLoading ? (
+                  <>
+                    <Loader2 className="w-5 h-5 animate-spin" />
+                    Analyzing...
+                  </>
+                ) : (
+                  <>
+                    <CheckCircle2 className="w-5 h-5" />
+                    Start Audit
+                  </>
+                )}
+              </button>
+              <button
+                onClick={() => {
+                  resetCodeAudit();
+                  setPdfPath('');
+                  setError({ hasError: false });
+                }}
+                disabled={isLoading}
+                className="btn-outline disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 px-6"
+                title="Clear all fields and results"
+              >
+                <RotateCcw className="w-5 h-5" />
+                Clear
+              </button>
+            </div>
           </div>
         </div>
 
         {/* Progress Display */}
-        {loading.isLoading && currentProgress && (
+        {isLoading && currentProgress && (
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}

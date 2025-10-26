@@ -401,24 +401,49 @@ async def initialize_qa_session(request: QARequest):
     Initialize a Q&A session for a repository
     Returns a session_id to use for subsequent questions
     """
+    import tempfile
+    import shutil
+    import git
+    
     try:
         # Generate session ID
         session_id = f"session_{datetime.now().timestamp()}"
         
-        # Create QA tool and index repository
+        # Create QA tool
         session = get_or_create_qa_session(session_id, request.repo_url, request.model_name)
         qa_tool = session["qa_tool"]
         
-        # Index the repository (this might take a while)
-        qa_tool.ask_question(request.repo_url, "Initialize repository")
-        session["indexed"] = True
+        # Clone and index repository in a temporary directory
+        temp_dir = tempfile.mkdtemp(prefix="guardian_qa_")
         
-        return {
-            "session_id": session_id,
-            "repo_url": request.repo_url,
-            "status": "ready",
-            "message": "Repository indexed successfully"
-        }
+        try:
+            # Clone repository
+            git.Repo.clone_from(request.repo_url, temp_dir)
+            
+            # Index the repository
+            repo_path = Path(temp_dir)
+            index_result = qa_tool.index_repository(repo_path)
+            
+            if index_result['status'] == 'error':
+                raise Exception(index_result.get('message', 'Failed to index repository'))
+            
+            session["indexed"] = True
+            session["temp_dir"] = temp_dir  # Store for cleanup later
+            
+            return {
+                "session_id": session_id,
+                "repo_url": request.repo_url,
+                "status": "ready",
+                "message": "Repository indexed successfully",
+                "indexed_files": index_result.get('file_count', 0),
+                "indexed_chunks": index_result.get('chunk_count', 0)
+            }
+            
+        except Exception as e:
+            # Cleanup on error
+            if temp_dir and os.path.exists(temp_dir):
+                shutil.rmtree(temp_dir, ignore_errors=True)
+            raise e
         
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -431,15 +456,29 @@ async def ask_question(session_id: str, request: QARequest):
     try:
         # Check if session exists
         if session_id not in chat_sessions:
-            # Create new session
-            session = get_or_create_qa_session(session_id, request.repo_url, request.model_name)
-        else:
-            session = chat_sessions[session_id]
+            raise HTTPException(
+                status_code=404, 
+                detail=f"Session {session_id} not found. Please initialize a session first using /api/qa/init"
+            )
         
+        session = chat_sessions[session_id]
         qa_tool = session["qa_tool"]
         
-        # Get answer
-        answer = qa_tool.ask_question(request.repo_url, request.question)
+        # Check if repository is indexed
+        if not session.get("indexed", False):
+            raise HTTPException(
+                status_code=400,
+                detail="Repository not indexed. Please initialize the session first."
+            )
+        
+        # Get answer (only pass the question, not the repo_url)
+        result = qa_tool.ask_question(request.question)
+        
+        if result.get('status') == 'error':
+            raise HTTPException(status_code=500, detail=result.get('error', 'Unknown error'))
+        
+        answer = result.get('answer', '')
+        sources = result.get('sources', [])
         
         # Store in chat history
         timestamp = datetime.now().isoformat()
@@ -458,10 +497,13 @@ async def ask_question(session_id: str, request: QARequest):
             "session_id": session_id,
             "question": request.question,
             "answer": answer,
+            "sources": sources,
             "timestamp": timestamp,
             "messages": session["messages"]
         }
         
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

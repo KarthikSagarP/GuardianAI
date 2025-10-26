@@ -1,19 +1,17 @@
 import { useState } from 'react';
 import { motion } from 'framer-motion';
-import { Github, Send, Loader2, MessageSquare, AlertCircle } from 'lucide-react';
+import { Github, Send, Loader2, MessageSquare, AlertCircle, RotateCcw } from 'lucide-react';
 import { api } from '@/services/api';
 import FormattedMessage from '@/components/FormattedMessage';
-import type { ChatMessage, SessionState, LoadingState, ErrorState } from '@/types';
+import { useAppState } from '@/contexts/AppStateContext';
+import type { ChatMessage, ErrorState } from '@/types';
 
 const QAChat = () => {
-  const [repoUrl, setRepoUrl] = useState('');
+  const { state, updateQAChat, resetQAChat } = useAppState();
+  const { repoUrl, messages, sessionId, isInitialized, isLoading } = state.qaChat;
+  
   const [question, setQuestion] = useState('');
-  const [session, setSession] = useState<SessionState>({
-    messages: [],
-  });
-  const [loading, setLoading] = useState<LoadingState>({ isLoading: false });
   const [error, setError] = useState<ErrorState>({ hasError: false });
-  const [isInitialized, setIsInitialized] = useState(false);
 
   const initializeSession = async () => {
     if (!repoUrl) {
@@ -22,7 +20,7 @@ const QAChat = () => {
     }
 
     try {
-      setLoading({ isLoading: true, message: 'Indexing repository...' });
+      updateQAChat({ isLoading: true });
       setError({ hasError: false });
 
       const response = await api.initQASession({
@@ -30,33 +28,31 @@ const QAChat = () => {
         question: 'Initialize',
       });
 
-      setSession({
+      updateQAChat({
         sessionId: response.session_id,
-        repoUrl: response.repo_url,
-        messages: [],
+        isInitialized: true,
+        isLoading: false,
       });
-      setIsInitialized(true);
-      setLoading({ isLoading: false });
     } catch (err) {
       setError({
         hasError: true,
         message: 'Failed to initialize session',
         details: err instanceof Error ? err.message : 'Unknown error',
       });
-      setLoading({ isLoading: false });
+      updateQAChat({ isLoading: false });
     }
   };
 
   const handleAskQuestion = async () => {
     if (!question.trim()) return;
 
-    if (!session.sessionId) {
+    if (!sessionId) {
       await initializeSession();
       return;
     }
 
     try {
-      setLoading({ isLoading: true, message: 'Thinking...' });
+      updateQAChat({ isLoading: true });
       setError({ hasError: false });
 
       const userMessage: ChatMessage = {
@@ -65,30 +61,31 @@ const QAChat = () => {
         timestamp: new Date().toISOString(),
       };
 
-      setSession((prev) => ({
-        ...prev,
-        messages: [...prev.messages, userMessage],
-      }));
+      updateQAChat({
+        messages: [...messages, userMessage],
+      });
       setQuestion('');
 
-      const response = await api.askQuestion(session.sessionId, {
+      const response = await api.askQuestion(sessionId, {
         repo_url: repoUrl,
         question: question,
       });
 
-      setSession((prev) => ({
-        ...prev,
-        messages: response.messages,
-      }));
-
-      setLoading({ isLoading: false });
+      updateQAChat({
+        messages: [...messages, userMessage, {
+          role: 'assistant',
+          content: response.answer,
+          timestamp: response.timestamp,
+        }],
+        isLoading: false,
+      });
     } catch (err) {
       setError({
         hasError: true,
         message: 'Failed to get answer',
         details: err instanceof Error ? err.message : 'Unknown error',
       });
-      setLoading({ isLoading: false });
+      updateQAChat({ isLoading: false });
     }
   };
 
@@ -131,16 +128,16 @@ const QAChat = () => {
               <input
                 type="url"
                 value={repoUrl}
-                onChange={(e) => setRepoUrl(e.target.value)}
+                onChange={(e) => updateQAChat({ repoUrl: e.target.value })}
                 placeholder="https://github.com/username/repository"
                 className="input-field flex-1"
               />
               <button
                 onClick={initializeSession}
-                disabled={loading.isLoading}
+                disabled={isLoading}
                 className="btn-primary whitespace-nowrap flex items-center gap-2"
               >
-                {loading.isLoading ? (
+                {isLoading ? (
                   <>
                     <Loader2 className="w-5 h-5 animate-spin" />
                     Indexing...
@@ -180,26 +177,40 @@ const QAChat = () => {
               <div className="flex items-center gap-2 text-sm">
                 <Github className="w-4 h-4 text-gray-600 dark:text-slate-400" />
                 <span className="text-gray-600 dark:text-slate-400">
-                  {session.repoUrl}
+                  {repoUrl}
                 </span>
               </div>
-              <button
-                onClick={() => setIsInitialized(false)}
-                className="text-sm text-primary-600 dark:text-primary-400 hover:underline"
-              >
-                Change Repository
-              </button>
+              <div className="flex items-center gap-4">
+                <button
+                  onClick={() => updateQAChat({ isInitialized: false, sessionId: null })}
+                  className="text-sm text-primary-600 dark:text-primary-400 hover:underline"
+                >
+                  Change Repository
+                </button>
+                <button
+                  onClick={() => {
+                    resetQAChat();
+                    setQuestion('');
+                    setError({ hasError: false });
+                  }}
+                  className="btn-outline text-sm flex items-center gap-2 px-4 py-2"
+                  title="Clear all chat history and reset"
+                >
+                  <RotateCcw className="w-4 h-4" />
+                  Clear All
+                </button>
+              </div>
             </div>
 
             {/* Messages */}
             <div className="glass-panel p-6 min-h-[400px] max-h-[600px] overflow-y-auto space-y-4">
-              {session.messages.length === 0 ? (
+              {messages.length === 0 ? (
                 <div className="flex flex-col items-center justify-center h-full text-gray-400 dark:text-slate-500">
                   <MessageSquare className="w-16 h-16 mb-4" />
                   <p className="text-lg">Ask a question to get started</p>
                 </div>
               ) : (
-                session.messages.map((message, index) => (
+                messages.map((message: ChatMessage, index: number) => (
                   <motion.div
                     key={index}
                     initial={{ opacity: 0, y: 10 }}
@@ -230,7 +241,7 @@ const QAChat = () => {
                   </motion.div>
                 ))
               )}
-              {loading.isLoading && (
+              {isLoading && (
                 <div className="chat-message chat-assistant">
                   <div className="flex items-center gap-3">
                     <Loader2 className="w-5 h-5 animate-spin text-gray-500" />
@@ -252,11 +263,11 @@ const QAChat = () => {
                   onKeyPress={handleKeyPress}
                   placeholder="Ask a question about the repository..."
                   className="input-field flex-1"
-                  disabled={loading.isLoading}
+                  disabled={isLoading}
                 />
                 <button
                   onClick={handleAskQuestion}
-                  disabled={loading.isLoading || !question.trim()}
+                  disabled={isLoading || !question.trim()}
                   className="btn-primary whitespace-nowrap flex items-center gap-2 disabled:opacity-50"
                 >
                   <Send className="w-5 h-5" />

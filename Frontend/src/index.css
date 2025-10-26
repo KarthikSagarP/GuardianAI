@@ -118,6 +118,24 @@
   }
 }
 
+@keyframes float {
+  0%, 100% {
+    transform: translateY(0px);
+  }
+  50% {
+    transform: translateY(-20px);
+  }
+}
+
+@keyframes pulse-glow {
+  0%, 100% {
+    opacity: 0.5;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
 .animate-shimmer {
   animation: shimmer 2s infinite;
   background: linear-gradient(
@@ -127,4 +145,30 @@
     transparent 100%
   );
   background-size: 1000px 100%;
+}
+
+.animate-float {
+  animation: float 3s ease-in-out infinite;
+}
+
+/* Grid Pattern */
+.bg-grid-pattern {
+  background-image: 
+    linear-gradient(to right, rgba(99, 102, 241, 0.1) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(99, 102, 241, 0.1) 1px, transparent 1px);
+  background-size: 50px 50px;
+}
+
+@layer utilities {
+  .shadow-neon {
+    box-shadow: 0 0 20px rgba(99, 102, 241, 0.5);
+  }
+  
+  .shadow-glow-primary {
+    box-shadow: 0 0 30px rgba(99, 102, 241, 0.3);
+  }
+  
+  .shadow-glow-accent {
+    box-shadow: 0 0 30px rgba(236, 72, 153, 0.3);
+  }
 }
